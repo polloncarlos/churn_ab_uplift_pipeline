@@ -1,0 +1,46 @@
+# Credenciais e ambiente
+.env
+*.env
+
+# Dados — nunca versionar dados brutos ou processados
+data/raw/
+data/processed/
+data/external/
+
+# Modelos serializados (pesados — usar S3 ou Git LFS se necessário)
+models/
+
+# Relatórios e exports gerados
+reports/exports/
+reports/figures/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# IDEs
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
