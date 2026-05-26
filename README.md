@@ -71,11 +71,11 @@ Os dados vêm do **PA005 — Customer Value Segmentation**, projeto anterior com
 | Etapa | Artefato | Status |
 |-------|----------|--------|
 | Extração de dados | `scripts/extract_raw_data.py` | ✅ |
-| EDA | `notebooks/01_eda/01_eda_churn.ipynb` | ✅ |
+| EDA | `notebooks/01_eda_churn.ipynb` | ✅ |
 | Feature Engineering | `src/features/build_features.py` | 🔄 |
-| Churn Model (Camada 1) | `notebooks/02_churn_model/` | ⏳ |
-| A/B Testing (Camada 2) | `notebooks/03_ab_testing/` | ⏳ |
-| Uplift Modeling (Camada 3) | `notebooks/04_uplift_model/` | ⏳ |
+| Churn Model (Camada 1) | `notebooks/02_churn_model.ipynb` | ⏳ |
+| A/B Testing (Camada 2) | `notebooks/03_ab_testing.ipynb` | ⏳ |
+| Uplift Modeling (Camada 3) | `notebooks/04_uplift_model.ipynb` | ⏳ |
 
 ---
 
@@ -117,10 +117,10 @@ pa006_churn_ab_uplift/
 │   └── external/
 │
 ├── notebooks/
-│   ├── 01_eda/
-│   ├── 02_churn_model/
-│   ├── 03_ab_testing/
-│   └── 04_uplift_model/
+│   ├── 01_eda_churn.ipynb
+│   ├── 02_churn_model.ipynb
+│   ├── 03_ab_testing.ipynb
+│   └── 04_uplift_model.ipynb
 │
 ├── src/
 │   ├── data/               ← conexão RDS, extração
