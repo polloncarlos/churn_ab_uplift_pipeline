@@ -35,6 +35,8 @@ venv/
 .venv/
 env/
 
+=2.1
+
 # IDEs
 .vscode/settings.json
 .idea/
