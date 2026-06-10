@@ -1,0 +1,9 @@
+# Normalize all text files to LF (project runs on WSL/Linux)
+* text=auto eol=lf
+
+# Binaries — no conversion
+*.pkl binary
+*.parquet binary
+*.png binary
+*.jpg binary
+*.jpeg binary
