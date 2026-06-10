@@ -13,6 +13,7 @@ models/
 
 # Relatórios — figures versionadas para README e dashboard
 reports/exports/
+reports/*.csv
 
 # Python
 __pycache__/

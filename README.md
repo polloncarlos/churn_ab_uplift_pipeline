@@ -9,10 +9,27 @@ Projeto end-to-end de ciência de dados seguindo o framework CRISP-DS. Identific
 
 ## Contexto de negócio
 
-Um e-commerce quer reduzir o churn de clientes. O time de marketing dispõe de campanhas de retenção (cupons, e-mail personalizado, desconto) mas precisa de duas respostas:
+**Empresa simulada:** e-commerce B2C de médio porte, 4.300 clientes ativos, ticket médio de R$ 350. O time de CRM identificou que clientes sem compra há 90 dias raramente retornam espontaneamente — e o custo de reativação cresce quanto mais tempo passa.
+
+**A dor:** o time de marketing dispõe de um budget fixo para campanhas de retenção (cupom de 10% + e-mail personalizado, custo de R$ 15 por contato). O problema é que contatar todos os clientes "em risco" esgota o budget e dilui o impacto. Precisam saber **onde concentrar esforço**.
+
+**As duas perguntas que o projeto responde:**
 
 1. Quais clientes têm maior probabilidade de churnar nos próximos 90 dias?
 2. Para quais desses clientes a campanha realmente **muda o comportamento** (Persuadables), versus clientes que converteriam de qualquer forma (Sure Things) ou que não responderiam de jeito nenhum (Lost Causes)?
+
+**Premissas da campanha (simuladas):**
+
+| Parâmetro | Valor |
+|-----------|-------|
+| Custo por contato | R$ 15 |
+| Taxa de retenção da campanha | 30% |
+| Receita média por cliente retido | R$ 350 |
+| Retorno líquido por churner retido | R$ 90 |
+
+**Escolha do threshold — lógica de negócio:**
+
+Falso negativo (FN) custa R$ 350 em receita perdida; falso positivo (FP) custa R$ 15 em campanha desperdiçada. Relação de custo FN/FP = 7×. Isso justifica um threshold conservador (0.20) que maximiza recall em detrimento de precision, capturando 84.8% dos churners com ROI líquido estimado de R$ 30.5k por ciclo de campanha sobre a base de 2.758 clientes elegíveis.
 
 ---
 
@@ -72,8 +89,8 @@ Os dados vêm do **PA005 — Customer Value Segmentation**, projeto anterior com
 |-------|----------|--------|
 | Extração de dados | `scripts/extract_raw_data.py` | ✅ |
 | EDA | `notebooks/01_eda_churn.ipynb` | ✅ |
-| Feature Engineering | `src/features/build_features.py` | 🔄 |
-| Churn Model (Camada 1) | `notebooks/02_churn_model.ipynb` | ⏳ |
+| Feature Engineering | `src/features/build_features.py` | ✅ |
+| Churn Model (Camada 1) | `notebooks/02_churn_model.ipynb` | ✅ ROC-AUC 0.787 |
 | A/B Testing (Camada 2) | `notebooks/03_ab_testing.ipynb` | ⏳ |
 | Uplift Modeling (Camada 3) | `notebooks/04_uplift_model.ipynb` | ⏳ |
 
