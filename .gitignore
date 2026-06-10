@@ -7,12 +7,12 @@ data/raw/
 data/processed/
 data/external/
 
-# Modelos serializados (pesados — usar S3 ou Git LFS se necessário)
+# Modelos serializados — artefatos de produção adicionados via git add -f
+# (negações não funcionam com diretório bloqueado no pai)
 models/
 
-# Relatórios e exports gerados
+# Relatórios — figures versionadas para README e dashboard
 reports/exports/
-reports/figures/
 
 # Python
 __pycache__/
@@ -34,8 +34,6 @@ build/
 venv/
 .venv/
 env/
-
-=2.1
 
 # IDEs
 .vscode/settings.json
