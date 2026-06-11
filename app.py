@@ -1,163 +1,232 @@
+import io
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from openpyxl.styles import Font, PatternFill, Alignment
 
 st.set_page_config(
-    page_title="Retention Science · PA006",
-    page_icon="📊",
+    page_title="Painel de Retenção · CRM",
+    page_icon="🎯",
     layout="wide",
 )
 
-# ── Constants ──────────────────────────────────────────────────────────────────
-THRESHOLD = 0.20
-TICKET = 350
-DISCOUNT = 0.10
-COST_PER_CONTACT = 15
-NET_REVENUE_PER_RETAINED = TICKET * (1 - DISCOUNT)  # R$315
+# ── Constantes de negócio ──────────────────────────────────────────────────────
+TICKET          = 350
+DESCONTO        = 0.10
+CUSTO_CONTATO   = 15
+RECEITA_RETIDO  = TICKET * (1 - DESCONTO)   # R$315 por churner retido
+CORTE_RISCO     = 0.20
 
-PROFILE_COLORS = {
+CORES_PERFIL = {
     "Persuadible":  "#2ecc71",
     "Sure Thing":   "#3498db",
     "Sleeping Dog": "#f39c12",
     "Lost Cause":   "#e74c3c",
 }
 
-# ── Data ───────────────────────────────────────────────────────────────────────
+LABEL_PERFIL = {
+    "Persuadible":  "Responde à campanha",
+    "Sure Thing":   "Retorna sem contato",
+    "Sleeping Dog": "Contato contraproducente",
+    "Lost Cause":   "Fora do alcance",
+}
+
+# ── Dados ──────────────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
     churn = pd.read_parquet("data/processed/churn_scores.parquet")
     ab    = pd.read_parquet("data/processed/ab_pool_assignment.parquet")
     score = pd.read_parquet("data/processed/scoring_output.parquet")
+    score = score.reset_index()
+    score["Perfil Negócio"] = score["perfil"].map(LABEL_PERFIL)
     return churn, ab, score
 
 churn_df, ab_df, score_df = load_data()
 
+# Persuadíveis pré-computados para download disponível em todas as páginas
+_persuadiveis_all = (
+    score_df[score_df.perfil == "Persuadible"]
+    .sort_values("cate_score", ascending=False)
+    .copy()
+)
+_N_DEFAULT = min(200, len(_persuadiveis_all))
+
+def _build_tabela(df_alvos: pd.DataFrame) -> pd.DataFrame:
+    t = df_alvos[["customer_id", "churn_score", "cate_score"]].copy()
+    t.columns = ["ID do Cliente", "Risco de Churn", "Potencial de Resposta"]
+    t["Risco de Churn"]        = (t["Risco de Churn"] * 100).round(1).astype(str) + "%"
+    t["Potencial de Resposta"] = (t["Potencial de Resposta"] * 100).round(1).astype(str) + "%"
+    t["Ação Recomendada"]      = "Enviar cupom 10% + e-mail"
+    return t
+
+def calcular_roi(n: int, cate_medio: float) -> float:
+    receita = cate_medio * RECEITA_RETIDO * n
+    custo   = n * CUSTO_CONTATO
+    return (receita - custo) / custo * 100 if custo > 0 else 0.0
+
+def to_excel(df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Lista Campanha")
+        ws = writer.sheets["Lista Campanha"]
+        fill   = PatternFill("solid", fgColor="1F4E79")
+        fonte  = Font(bold=True, color="FFFFFF")
+        centro = Alignment(horizontal="center")
+        for cell in ws[1]:
+            cell.fill      = fill
+            cell.font      = fonte
+            cell.alignment = centro
+        for col in ws.columns:
+            ws.column_dimensions[col[0].column_letter].width = 22
+    return buf.getvalue()
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## Retention Science")
-    st.caption("Churn · A/B Testing · Uplift")
+    st.markdown("## Painel de Retenção")
+    st.caption("Time de CRM · E-commerce B2C")
     st.divider()
-    page = st.radio(
+    pagina = st.radio(
         "Navegação",
-        ["O Problema", "A Evidência", "Os Alvos"],
+        ["Visão Geral", "Resultado do Teste", "Lista de Ação"],
         label_visibility="collapsed",
     )
     st.divider()
-    st.caption("PA006 · E-commerce B2C · 4.300 clientes")
-
-# ── Page 1: O Problema ─────────────────────────────────────────────────────────
-if page == "O Problema":
-    st.title("O Problema")
-    st.markdown(
-        "Um e-commerce B2C com 4.300 clientes perde receita silenciosamente. "
-        "Clientes sem compra há **90 dias** raramente retornam espontaneamente — "
-        "mas contactar toda a base em risco esgota o budget e dilui o impacto."
+    st.caption("Campanha: cupom 10% + e-mail · R$ 15/contato")
+    st.divider()
+    _n_dl     = st.session_state.get("n_sel", _N_DEFAULT)
+    _tab_dl   = _build_tabela(_persuadiveis_all.head(_n_dl))
+    st.download_button(
+        label=f"⬇ Baixar Excel ({_n_dl} clientes)",
+        data=to_excel(_tab_dl),
+        file_name=f"lista_campanha_{_n_dl}_clientes.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+    st.download_button(
+        label="⬇ Baixar CSV",
+        data=_tab_dl.to_csv(index=False).encode("utf-8"),
+        file_name=f"lista_campanha_{_n_dl}_clientes.csv",
+        mime="text/csv",
+        use_container_width=True,
     )
 
-    pool = churn_df[churn_df.churn_score >= THRESHOLD]
-    churned_n = int(churn_df.churn_real.sum())
-    total_n = len(churn_df)
+# ══════════════════════════════════════════════════════════════════════════════
+# PÁGINA 1 — VISÃO GERAL
+# ══════════════════════════════════════════════════════════════════════════════
+if pagina == "Visão Geral":
+    st.title("Visão Geral")
+    st.markdown(
+        "Clientes que não compram há **90 dias** raramente retornam espontaneamente. "
+        "O modelo identifica quem está em risco e prioriza quem realmente responde à campanha."
+    )
+
+    em_risco      = churn_df[churn_df.churn_score >= CORTE_RISCO]
+    n_risco       = len(em_risco)
+    n_persuadivel = int((score_df.perfil == "Persuadible").sum())
+    receita_risco = n_risco * TICKET
+    custo_camp    = n_persuadivel * CUSTO_CONTATO
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Clientes modelados", f"{total_n:,}")
-    c2.metric("Churn rate histórico", f"{churned_n / total_n:.1%}")
-    c3.metric("ROC-AUC (teste)", "0.776")
-    c4.metric("Pool campanha (≥ 0.20)", f"{len(pool):,}")
+    c1.metric("Clientes em risco", f"{n_risco:,}",
+              help="Clientes com alta probabilidade de não retornar nos próximos 90 dias")
+    c2.metric("Receita em risco", f"R$ {receita_risco:,.0f}",
+              help="Estimativa de receita perdida caso esses clientes churnem")
+    c3.metric("Custo da campanha (alvos)", f"R$ {custo_camp:,.0f}",
+              help=f"{n_persuadivel} clientes que respondem à campanha × R$ {CUSTO_CONTATO}")
+    c4.metric("ROI validado em teste", "51,7%",
+              help="Resultado confirmado em teste A/B com 1.134 clientes")
 
     st.divider()
 
-    # Score distribution
-    fig = go.Figure()
-    for label, color, name in [(0, "#3498db", "Ativo"), (1, "#e74c3c", "Churned")]:
-        sub = churn_df[churn_df.churn_real == label]
-        fig.add_trace(go.Histogram(
-            x=sub.churn_score,
-            name=name,
-            marker_color=color,
-            opacity=0.70,
-            nbinsx=40,
-        ))
-    fig.add_vline(
-        x=THRESHOLD,
-        line_dash="dash",
-        line_color="orange",
-        annotation_text=f"Threshold {THRESHOLD}",
-        annotation_position="top right",
-    )
-    fig.update_layout(
-        barmode="overlay",
-        title="Distribuição do Score P(churn)",
-        xaxis_title="P(churn)",
-        yaxis_title="Clientes",
-        legend_title="Status",
-        template="plotly_white",
-        height=380,
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    col1, col2 = st.columns([3, 2])
 
-    st.info(
-        "**Por que threshold 0.20?** Falso negativo custa R$350 (receita perdida), "
-        "falso positivo custa R$15 (campanha inútil). Relação FN/FP = **7×** → "
-        "threshold conservador maximiza recall sem explodir o budget."
-    )
+    with col1:
+        fig = go.Figure()
+        for label, cor, nome in [(0, "#3498db", "Clientes ativos"), (1, "#e74c3c", "Clientes perdidos")]:
+            sub = churn_df[churn_df.churn_real == label]
+            fig.add_trace(go.Histogram(
+                x=sub.churn_score,
+                name=nome,
+                marker_color=cor,
+                opacity=0.70,
+                nbinsx=40,
+            ))
+        fig.add_vline(
+            x=CORTE_RISCO,
+            line_dash="dash",
+            line_color="#f39c12",
+            annotation_text="Corte de risco",
+            annotation_position="top right",
+        )
+        fig.update_layout(
+            barmode="overlay",
+            title="Distribuição de Risco — Base de Clientes",
+            xaxis_title="Nível de Risco de Churn",
+            yaxis_title="Número de Clientes",
+            legend_title="Status",
+            template="plotly_white",
+            height=380,
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Threshold sensitivity table
-    st.subheader("Sensibilidade ao Threshold")
-    rows = []
-    for t in [0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]:
-        sub = churn_df[churn_df.churn_score >= t]
-        tp = int((sub.churn_real == 1).sum())
-        rows.append({
-            "Threshold": f"{t:.2f}",
-            "Pool": f"{len(sub):,}",
-            "Custo campanha": f"R$ {len(sub) * COST_PER_CONTACT:,.0f}",
-            "Recall": f"{tp / churned_n:.1%}",
-            "Precision": f"{tp / len(sub):.1%}" if len(sub) > 0 else "—",
-        })
-    tbl = pd.DataFrame(rows).set_index("Threshold")
-    st.dataframe(tbl, use_container_width=True)
+    with col2:
+        st.markdown("#### Como funciona")
+        st.markdown("""
+O modelo analisa o comportamento de compra de cada cliente e atribui um **nível de risco de churn**.
 
-# ── Page 2: A Evidência ────────────────────────────────────────────────────────
-elif page == "A Evidência":
-    st.title("A Evidência")
+**Clientes acima do corte de risco** entram no pool da campanha.
+
+Dentro desse pool, um segundo modelo identifica **quem realmente responde** ao cupom, evitando desperdício de budget com quem voltaria sozinho.
+
+| Perfil | O que fazer |
+|--------|------------|
+| Responde à campanha | ✅ Contatar (prioridade) |
+| Retorna sem contato | ⏸ Monitorar sem cupom |
+| Contato contraproducente | ⚠️ Evitar |
+| Fora do alcance | ❌ Não contatar |
+""")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PÁGINA 2 — RESULTADO DO TESTE
+# ══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Resultado do Teste":
+    st.title("Resultado do Teste")
     st.markdown(
-        "A campanha (cupom 10% + e-mail) foi testada em **1.134 clientes** do pool "
-        "de risco, divididos aleatoriamente 50/50."
+        "A campanha foi testada com **1.134 clientes** divididos em dois grupos iguais. "
+        "Apenas um grupo recebeu o cupom. O outro serviu de comparação."
     )
+
+    st.success("✅ **Campanha validada.** O cupom reduziu o churn de forma consistente e o resultado não é obra do acaso.")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("χ² / p-value", "6.96 / 0.008", delta="significativo", delta_color="normal")
-    c2.metric("ARR (lift absoluto)", "7.6 p.p.", delta="IC95% [2.1%, 13.1%]", delta_color="normal")
-    c3.metric("Lift relativo de churn", "−20.2%")
-    c4.metric("ROI da campanha", "51.7%")
+    c1.metric("Redução de churn", "7,6 p.p.", help="Diferença entre o grupo sem e com campanha")
+    c2.metric("Redução relativa", "−20,2%", help="O grupo com cupom teve 20% menos churn que o grupo controle")
+    c3.metric("ROI da campanha", "51,7%", help="Lucro líquido ÷ custo da campanha")
+    c4.metric("Retorno por ciclo", "R$ 4.400", help="Lucro estimado por ciclo de campanha (567 clientes contactados)")
 
     st.divider()
 
     col1, col2 = st.columns(2)
 
     with col1:
-        ctrl_rate  = 0.376
-        treat_rate = 0.300
         fig = go.Figure(data=[go.Bar(
-            x=["Controle", "Tratamento"],
-            y=[ctrl_rate, treat_rate],
-            text=[f"{ctrl_rate:.1%}", f"{treat_rate:.1%}"],
+            x=["Sem campanha", "Com campanha"],
+            y=[0.376, 0.300],
+            text=["37,6%", "30,0%"],
             textposition="outside",
             marker_color=["#95a5a6", "#2ecc71"],
             width=0.45,
         )])
         fig.add_annotation(
-            x=0.5, y=(ctrl_rate + treat_rate) / 2,
-            xref="x", yref="y",
-            text=f"↓ {ctrl_rate - treat_rate:.1%}",
+            x=0.5, y=0.340, xref="x", yref="y",
+            text="↓ 7,6 pontos percentuais",
             showarrow=False,
-            font=dict(size=14, color="#c0392b"),
+            font=dict(size=13, color="#c0392b"),
         )
         fig.update_layout(
-            title="Churn Rate por Grupo",
-            yaxis_title="Churn rate",
+            title="Taxa de Churn por Grupo",
+            yaxis_title="% de clientes perdidos",
             yaxis_tickformat=".0%",
             yaxis_range=[0, 0.50],
             template="plotly_white",
@@ -167,160 +236,139 @@ elif page == "A Evidência":
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        n_treatment = 567
-        custo   = n_treatment * COST_PER_CONTACT           # 8 505
-        receita = n_treatment * (ctrl_rate - treat_rate) * 300  # 567 × 7.6% × R$300
+        n_trat  = 567
+        custo   = n_trat * CUSTO_CONTATO
+        receita = n_trat * 0.076 * 300
         lucro   = receita - custo
 
         fig = go.Figure(go.Waterfall(
             orientation="v",
             measure=["absolute", "relative", "total"],
-            x=["Custo campanha", "Receita recuperada", "Lucro líquido"],
+            x=["Custo da campanha", "Clientes recuperados", "Lucro líquido"],
             y=[-custo, receita, 0],
-            text=[f"–R$ {custo:,.0f}", f"+R$ {receita:,.0f}", f"R$ {lucro:,.0f}"],
+            text=[f"−R$ {custo:,.0f}", f"+R$ {receita:,.0f}", f"R$ {lucro:,.0f}"],
             textposition="outside",
             connector={"line": {"color": "#bdc3c7"}},
             increasing={"marker": {"color": "#2ecc71"}},
             decreasing={"marker": {"color": "#e74c3c"}},
-            totals={"marker": {"color": "#3498db"}},
+            totals={"marker": {"color": "#1F4E79"}},
         ))
         fig.update_layout(
-            title="Impacto Financeiro por Ciclo",
+            title="Impacto Financeiro por Ciclo de Campanha",
             yaxis_title="R$",
             template="plotly_white",
-            height=380,
+            height=430,
+            margin=dict(t=40, b=100),
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    st.success(
-        f"**Resultado:** campanha reduz churn de 37.6% → 30.0% (−20.2% relativo). "
-        f"Lucro estimado de **R$ {lucro:,.0f}** por ciclo com ROI de **51.7%**. "
-        f"NNT = 13.2 contatos para reter 1 cliente adicional."
-    )
-
-    # IC95% visualization
-    st.subheader("Intervalo de Confiança do Lift (ARR)")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=[0.021, 0.076, 0.131],
-        y=[1, 1, 1],
-        mode="markers+lines",
-        marker=dict(size=[8, 14, 8], color=["#bdc3c7", "#2ecc71", "#bdc3c7"]),
-        line=dict(color="#2ecc71", width=3),
-        showlegend=False,
-    ))
-    fig.add_vline(x=0, line_dash="dash", line_color="#e74c3c", annotation_text="H₀: ARR = 0")
-    fig.update_layout(
-        xaxis_title="ARR (redução absoluta de churn rate)",
-        xaxis_tickformat=".1%",
-        yaxis_visible=False,
-        template="plotly_white",
-        height=160,
-        margin=dict(t=20, b=40),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-# ── Page 3: Os Alvos ──────────────────────────────────────────────────────────
-else:
-    st.title("Os Alvos")
     st.markdown(
-        "A campanha funciona — mas não para todos. "
-        "O T-Learner estima o **CATE individual** e segmenta os clientes em 4 perfis "
-        "para que o budget vá apenas para quem realmente responde à intervenção."
+        f'<div style="background-color:#dbeafe;padding:1rem 1.25rem;border-radius:0.5rem;'
+        f'border-left:4px solid #3b82f6;font-size:0.95rem;">'
+        f'<b>Como interpretar:</b> De cada 13 clientes contactados, 1 é retido graças ao cupom. '
+        f'Com {n_trat} contatos, a campanha gerou <b>R$ {receita:,.0f}</b> em receita recuperada '
+        f'a um custo de R$ {custo:,.0f}. Lucro estimado por ciclo: <b>R$ {lucro:,.0f}</b>.'
+        f'</div>',
+        unsafe_allow_html=True,
     )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PÁGINA 3 — LISTA DE AÇÃO
+# ══════════════════════════════════════════════════════════════════════════════
+else:
+    st.title("Lista de Ação")
+    st.markdown(
+        "Use o slider para ajustar o budget disponível. "
+        "A lista seleciona automaticamente os clientes com **maior potencial de resposta à campanha**."
+    )
+
+    persuadiveis = (
+        score_df[score_df.perfil == "Persuadible"]
+        .sort_values("cate_score", ascending=False)
+        .copy()
+    )
+    n_disp = len(persuadiveis)
+
+    # ── Slider de budget ──────────────────────────────────────────────────────
+    budget_max = n_disp * CUSTO_CONTATO
+    budget = st.slider(
+        "Budget da campanha (R$)",
+        min_value=CUSTO_CONTATO * 10,
+        max_value=budget_max,
+        value=min(3000, budget_max),
+        step=CUSTO_CONTATO * 10,
+        format="R$ %d",
+    )
+    n_sel = min(budget // CUSTO_CONTATO, n_disp)
+    st.session_state["n_sel"] = n_sel
+    alvos = persuadiveis.head(n_sel)
+    cate_medio = float(alvos.cate_score.mean()) if n_sel > 0 else 0.0
+    roi = calcular_roi(n_sel, cate_medio)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Clientes selecionados", f"{n_sel:,}",
+              help=f"De {n_disp} disponíveis que respondem à campanha")
+    c2.metric("Custo total", f"R$ {n_sel * CUSTO_CONTATO:,.0f}")
+    c3.metric("Potencial de resposta médio", f"{cate_medio:.1%}",
+              help="Incremento esperado na taxa de retenção para este grupo")
+    c4.metric("ROI projetado", f"{roi:.0f}%")
+
+    st.divider()
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        counts = score_df.perfil.value_counts().reset_index()
-        counts.columns = ["perfil", "n"]
+        contagem = score_df.perfil.value_counts().reset_index()
+        contagem.columns = ["perfil", "n"]
+        contagem["label"] = contagem.perfil.map(LABEL_PERFIL)
         fig = px.pie(
-            counts,
+            contagem,
             values="n",
-            names="perfil",
+            names="label",
             color="perfil",
-            color_discrete_map=PROFILE_COLORS,
-            title="Distribuição de Perfis",
+            color_discrete_map=CORES_PERFIL,
+            title="Perfis no Pool de Risco",
         )
         fig.update_traces(textposition="inside", textinfo="percent+label")
         fig.update_layout(showlegend=False, height=380)
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        scatter_df = score_df.reset_index()
+        scatter_df = score_df.copy()
+        scatter_df["label"] = scatter_df.perfil.map(LABEL_PERFIL)
         fig = px.scatter(
             scatter_df,
             x="cate_score",
             y="churn_score",
-            color="perfil",
-            color_discrete_map=PROFILE_COLORS,
-            title="CATE × P(churn) — Mapa de Perfis",
+            color="label",
+            color_discrete_map={v: CORES_PERFIL[k] for k, v in LABEL_PERFIL.items()},
+            title="Risco de Churn × Potencial de Resposta",
             labels={
-                "cate_score":  "CATE (efeito incremental da campanha)",
-                "churn_score": "P(churn)",
+                "cate_score":  "Potencial de Resposta à Campanha",
+                "churn_score": "Risco de Churn",
+                "label":       "Perfil",
             },
             opacity=0.55,
             height=380,
-            hover_data={"customer_id": True, "cate_score": ":.3f", "churn_score": ":.3f"},
+            hover_data={
+                "customer_id": True,
+                "cate_score":  ":.3f",
+                "churn_score": ":.3f",
+                "label":       True,
+            },
         )
-        fig.add_vline(x=0, line_dash="dash", line_color="#7f8c8d",
-                      annotation_text="CATE = 0")
+        fig.add_vline(x=0, line_dash="dash", line_color="#bdc3c7")
         fig.add_hline(
             y=float(score_df.churn_score.median()),
             line_dash="dash",
-            line_color="#7f8c8d",
-            annotation_text="Mediana P(churn)",
+            line_color="#bdc3c7",
         )
         fig.update_layout(template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
-    st.subheader("Lista de Alvos — Persuadibles")
-    st.markdown("Use o slider para ajustar o tamanho da campanha conforme o budget disponível.")
+    st.subheader(f"Lista de contatos — {n_sel} clientes selecionados")
 
-    avail = int((score_df.perfil == "Persuadible").sum())
-    top_k = st.slider(
-        "Top-K Persuadibles para campanha",
-        min_value=50,
-        max_value=min(500, avail),
-        value=min(200, avail),
-        step=50,
-    )
+    tabela = _build_tabela(alvos)
 
-    persuadibles = (
-        score_df[score_df.perfil == "Persuadible"]
-        .reset_index()
-        .sort_values("cate_score", ascending=False)
-        .head(top_k)
-    )
-
-    cate_mean = float(persuadibles.cate_score.mean())
-    custo_p   = top_k * COST_PER_CONTACT
-    receita_p = cate_mean * NET_REVENUE_PER_RETAINED * top_k
-    roi_p     = (receita_p - custo_p) / custo_p * 100
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Persuadibles disponíveis", f"{avail:,}")
-    c2.metric("Selecionados", f"{min(top_k, avail):,}")
-    c3.metric("CATE médio", f"{cate_mean:.3f}")
-    c4.metric("ROI projetado", f"{roi_p:.0f}%", help="CATE × ticket_líquido / custo_campanha")
-
-    table_df = persuadibles[["customer_id", "churn_score", "cate_score", "perfil"]].copy()
-    table_df = table_df.rename(columns={
-        "customer_id": "Customer ID",
-        "churn_score": "P(churn)",
-        "cate_score":  "CATE",
-        "perfil":      "Perfil",
-    })
-    table_df["P(churn)"] = table_df["P(churn)"].round(3)
-    table_df["CATE"]     = table_df["CATE"].round(3)
-
-    st.dataframe(table_df, use_container_width=True, hide_index=True)
-
-    csv_bytes = table_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Exportar CSV para CRM",
-        data=csv_bytes,
-        file_name=f"campaign_targets_top{top_k}.csv",
-        mime="text/csv",
-    )
+    st.dataframe(tabela, use_container_width=True, hide_index=True)
