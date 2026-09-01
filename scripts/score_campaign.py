@@ -22,6 +22,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 
 # Garante que src/ é importável e CWD é a raiz do projeto
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +30,7 @@ sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
 from src.features.build_features import build_features
+from src.features.feature_labels import label_for, format_value
 
 # ── Paths ────────────────────────────────────────────────────────────────
 CHURN_MODEL_PATH     = ROOT / "models/churn/xgb_churn_calibrated.pkl"
@@ -36,6 +38,9 @@ CONTROL_MODEL_PATH   = ROOT / "models/uplift/lr_control.pkl"
 TREATMENT_MODEL_PATH = ROOT / "models/uplift/lr_treatment.pkl"
 OUTPUT_PARQUET       = ROOT / "data/processed/scoring_output.parquet"
 OUTPUT_CSV           = ROOT / "reports/campaign_targets.csv"
+SHAP_CONTRIB_PARQUET = ROOT / "data/processed/shap_contributions.parquet"
+SHAP_GLOBAL_PARQUET  = ROOT / "data/processed/shap_global.parquet"
+SHAP_TOP_N           = 8    # fatores por cliente no painel de explicabilidade
 
 # ── Parâmetros de negócio (defaults) ─────────────────────────────────────
 CHURN_THRESHOLD = 0.20   # threshold operacional do churn model
@@ -172,6 +177,57 @@ def run(top_k: int = TOP_K, churn_threshold: float = CHURN_THRESHOLD):
     )
     campaign_df.to_csv(OUTPUT_CSV, index=False)
     print(f"Salvo: {OUTPUT_CSV.relative_to(ROOT)}  | {len(campaign_df)} clientes")
+
+    # ── 7. Explicabilidade (SHAP) ────────────────────────────────────────
+    # Mesma tecnica do notebook 05: TreeSHAP nativo do XGBoost (pred_contribs),
+    # media dos 5 estimadores-base do CalibratedClassifierCV. Espaco de margem.
+    print_section("7. Explicabilidade (SHAP)")
+
+    X_pool_feat = pool[feature_cols]
+    fold_estimators = [cc.estimator for cc in churn_model.calibrated_classifiers_]
+    dmat = xgb.DMatrix(X_pool_feat.values, feature_names=feature_cols)
+    contribs = np.mean(
+        [est.get_booster().predict(dmat, pred_contribs=True) for est in fold_estimators],
+        axis=0,
+    )
+    shap_vals = contribs[:, :-1]  # (n_pool, n_features), ultima coluna e o bias
+
+    # Visao global: influencia media de cada fator
+    shap_global = (
+        pd.DataFrame({
+            "feature": feature_cols,
+            "feature_label": [label_for(f) for f in feature_cols],
+            "mean_abs_shap": np.abs(shap_vals).mean(axis=0),
+        })
+        .sort_values("mean_abs_shap", ascending=False)
+        .reset_index(drop=True)
+    )
+    shap_global.to_parquet(SHAP_GLOBAL_PARQUET, index=False)
+    print(f"Salvo: {SHAP_GLOBAL_PARQUET.relative_to(ROOT)}  | {len(shap_global)} fatores")
+
+    # Por cliente: os SHAP_TOP_N fatores de maior peso (positivo ou negativo)
+    cids = X_pool_feat.index.to_numpy()
+    records = []
+    for i, cid in enumerate(cids):
+        row = shap_vals[i]
+        for j in np.argsort(np.abs(row))[::-1][:SHAP_TOP_N]:
+            fname = feature_cols[j]
+            fval = float(X_pool_feat.iloc[i, j])
+            records.append({
+                "customer_id": cid,
+                "feature": fname,
+                "feature_label": label_for(fname),
+                "shap_value": float(row[j]),
+                "feature_value": fval,
+                "feature_value_fmt": format_value(fname, fval),
+                "direcao": "aumenta risco" if row[j] > 0 else "reduz risco",
+            })
+    shap_contrib = pd.DataFrame(records)
+    shap_contrib.to_parquet(SHAP_CONTRIB_PARQUET, index=False)
+    print(
+        f"Salvo: {SHAP_CONTRIB_PARQUET.relative_to(ROOT)}  | "
+        f"{len(shap_contrib)} linhas ({len(cids)} clientes x {SHAP_TOP_N} fatores)"
+    )
 
     print_section("Concluído")
     print(f"Pool gerado : {len(pool):,} clientes em risco")

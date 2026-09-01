@@ -40,9 +40,11 @@ def load_data():
     score = pd.read_parquet("data/processed/scoring_output.parquet")
     score = score.reset_index()
     score["Perfil Negócio"] = score["perfil"].map(LABEL_PERFIL)
-    return churn, ab, score
+    shap_contrib = pd.read_parquet("data/processed/shap_contributions.parquet")
+    shap_global  = pd.read_parquet("data/processed/shap_global.parquet")
+    return churn, ab, score, shap_contrib, shap_global
 
-churn_df, ab_df, score_df = load_data()
+churn_df, ab_df, score_df, shap_contrib_df, shap_global_df = load_data()
 
 # Persuadíveis pré-computados para download disponível em todas as páginas
 _persuadiveis_all = (
@@ -88,7 +90,7 @@ with st.sidebar:
     st.divider()
     pagina = st.radio(
         "Navegação",
-        ["Visão Geral", "Resultado do Teste", "Lista de Ação"],
+        ["Visão Geral", "Resultado do Teste", "Lista de Ação", "Como o Modelo Decide"],
         label_visibility="collapsed",
     )
     st.divider()
@@ -275,7 +277,7 @@ elif pagina == "Resultado do Teste":
 # ══════════════════════════════════════════════════════════════════════════════
 # PÁGINA 3 — LISTA DE AÇÃO
 # ══════════════════════════════════════════════════════════════════════════════
-else:
+elif pagina == "Lista de Ação":
     st.title("Lista de Ação")
     st.markdown(
         "Use o slider para ajustar o budget disponível. "
@@ -372,3 +374,91 @@ else:
     tabela = _build_tabela(alvos)
 
     st.dataframe(tabela, use_container_width=True, hide_index=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PÁGINA 4 — COMO O MODELO DECIDE
+# ══════════════════════════════════════════════════════════════════════════════
+else:
+    st.title("Como o Modelo Decide")
+    st.markdown(
+        "O modelo de risco não é uma caixa-preta. Aqui você vê **o que ele mais considera "
+        "no geral** e **por que um cliente específico** entrou na lista."
+    )
+
+    # ── Visão global ─────────────────────────────────────────────────────────
+    st.subheader("O que o modelo mais olha")
+    g = shap_global_df.head(10).iloc[::-1]
+    fig = go.Figure(go.Bar(
+        x=g.mean_abs_shap,
+        y=g.feature_label,
+        orientation="h",
+        marker_color="#1F4E79",
+    ))
+    fig.update_layout(
+        title="Peso médio de cada fator na decisão do modelo",
+        xaxis_title="Influência média (quanto maior, mais o fator pesa)",
+        template="plotly_white",
+        height=400,
+        margin=dict(l=10, r=10, t=50, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        "Barra maior = fator que o modelo mais usa para separar quem tende a churnar de "
+        "quem tende a ficar. É a visão geral; para um cliente específico o peso muda."
+    )
+
+    st.divider()
+
+    # ── Drill-down por cliente ───────────────────────────────────────────────
+    st.subheader("Por que este cliente está na lista?")
+
+    pool_ids = (
+        score_df.sort_values("churn_score", ascending=False)["customer_id"].tolist()
+    )
+    cid = st.selectbox(
+        "Cliente do pool de risco",
+        pool_ids,
+        format_func=lambda x: f"Cliente {x}",
+    )
+
+    cinfo = score_df[score_df.customer_id == cid].iloc[0]
+    m1, m2 = st.columns(2)
+    m1.metric("Risco de churn", f"{cinfo.churn_score:.0%}")
+    m2.metric("Perfil", LABEL_PERFIL.get(cinfo.perfil, cinfo.perfil))
+
+    c = shap_contrib_df[shap_contrib_df.customer_id == cid].copy()
+
+    top_risco = c[c.direcao == "aumenta risco"].nlargest(2, "shap_value")
+    if len(top_risco):
+        motivos = " e ".join(
+            f"{r.feature_label.lower()} ({r.feature_value_fmt})"
+            for r in top_risco.itertuples()
+        )
+        st.markdown(f"**Os fatores que mais pesaram para incluir este cliente:** {motivos}.")
+
+    c = c.iloc[c.shap_value.abs().argsort()]  # menor peso embaixo, maior no topo
+    labels = [f"{r.feature_label} ({r.feature_value_fmt})" for r in c.itertuples()]
+    cores = ["#e74c3c" if v > 0 else "#2ecc71" for v in c.shap_value]
+
+    fig = go.Figure(go.Bar(
+        x=c.shap_value,
+        y=labels,
+        orientation="h",
+        marker_color=cores,
+        text=[f"{v:+.2f}" for v in c.shap_value],
+        textposition="outside",
+    ))
+    fig.add_vline(x=0, line_color="#7f8c8d")
+    fig.update_layout(
+        title="Fatores que empurraram este cliente para dentro (vermelho) ou para fora (verde) da lista",
+        xaxis_title="←  reduz risco        |        aumenta risco  →",
+        template="plotly_white",
+        height=430,
+        margin=dict(l=10, r=50, t=60, b=40),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        "Cada barra é o peso daquele fator na decisão do modelo para este cliente. "
+        "O valor entre parênteses é o dado real do cliente."
+    )
