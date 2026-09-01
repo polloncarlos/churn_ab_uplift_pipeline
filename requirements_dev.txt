@@ -19,6 +19,9 @@ statsmodels==0.14.2
 # Uplift Modeling
 causalml==0.15.5
 
+# Explainability (notebook 05; score_campaign.py usa o pred_contribs nativo do xgboost)
+shap==0.49.1
+
 # Visualization
 matplotlib==3.9.0
 seaborn==0.13.2

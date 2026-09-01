@@ -92,7 +92,7 @@ O perfil dominante do churned: frequência mediana 1 vs. 3 para ativos, receita 
 
 ## 🤖 Modelagem
 
-### Camada 1 — Churn Prediction
+### Camada 1 - Churn Prediction
 
 | Modelo | ROC-AUC CV (treino) | ROC-AUC (teste) | Gap |
 |--------|--------------------|-----------------|----|
@@ -111,9 +111,22 @@ O perfil dominante do churned: frequência mediana 1 vs. 3 para ativos, receita 
 
 ![Feature importance](reports/figures/churn_feature_importance.png)
 
+#### Explicabilidade com SHAP (`05_explainability_shap.ipynb`)
+
+Loopback à *Evaluation* da Camada 1 após concluídas as Camadas 2 e 3. TreeSHAP calculado sobre os 5 estimadores-base do `CalibratedClassifierCV` (média das folds).
+
+- **Consistência:** ranking `|SHAP|` e ranking `gain` concordam (Spearman ρ = 0,74), com `customer_lifetime_days` dominante nos dois.
+- **Sanidade de domínio:** todas as direções fazem sentido. `customer_lifetime_days`, `unique_products` e `frequency` mais altos protegem do churn; `avg_recency_days` e `avg_ticket` mais altos puxam para churn. Nada no topo que seja artefato de dado.
+- **Ressalva de produção:** `customer_lifetime_days` concentra cerca de 8x mais contribuição que a 2ª feature, e o efeito não é suave (degrau em torno de 270 dias). Sugestão: monitorar PSI dessa feature e re-treinar sob desvio.
+- **Uso pelo negócio:** `waterfall` por cliente dá ao time de retenção a justificativa individual da entrada na lista de ação.
+
+![SHAP, impacto por feature](reports/figures/shap_beeswarm.png)
+
+![SHAP, explicação individual de um cliente de alto risco](reports/figures/shap_waterfall_high.png)
+
 ---
 
-### Camada 2 — A/B Testing
+### Camada 2 - A/B Testing
 
 > **Nota sobre a simulação:** os outcomes de campanha foram gerados probabilisticamente: o churn do grupo tratamento é amostrado com P(churn) reduzida pelo lift de 30% (benchmark para campanhas de e-mail/cupom em e-commerce). O experimento valida o **design estatístico** e o **poder amostral**; o lift real deve ser medido em produção com dados observados. Para validação real: monitorar a taxa de recompra dos dois grupos por 90 dias em uma campanha ao vivo, usando retorno ao site ou nova compra como KPI primário. O tamanho de amostra calculado (157/grupo) garante poder suficiente para detectar o efeito esperado.
 
@@ -139,7 +152,7 @@ O perfil dominante do churned: frequência mediana 1 vs. 3 para ativos, receita 
 
 ---
 
-### Camada 3 — Uplift Modeling (T-Learner)
+### Camada 3 - Uplift Modeling (T-Learner)
 
 CATE = P(churn|controle) − P(churn|tratamento). Positivo = campanha reduz churn nesse cliente.
 
@@ -280,7 +293,7 @@ cd churn_ab_uplift_pipeline
 pip install -r requirements_dev.txt
 ```
 
-> **Dado de entrada:** `data/raw/customer_segments.parquet`, exportado do PA005 (Customer Value Segmentation). Não está versionado; use o dashboard como referência ou entre em contato para acesso.
+> **Dado de entrada:** `data/raw/customer_segments.parquet`. Não está versionado; use o dashboard como referência ou entre em contato para acesso.
 
 ```bash
 # Gerar scoring completo (churn + uplift)
