@@ -154,7 +154,7 @@ def run(top_k: int = TOP_K, churn_threshold: float = CHURN_THRESHOLD):
     print(f"Lucro líquido        : R${lucro:,.0f}")
     print(f"ROI direcionado      : {roi:.1%}")
     print()
-    print(f"Sleeping Dogs (NÃO contatar): {(pool['perfil'] == 'Sleeping Dog').sum()} clientes")
+    print(f"Sleeping Dogs (CATE estimado negativo): {(pool['perfil'] == 'Sleeping Dog').sum()} clientes")
 
     # ── 6. Artefatos de saída ────────────────────────────────────────────
     print_section("6. Salvando Artefatos")

@@ -28,7 +28,7 @@ CORES_PERFIL = {
 LABEL_PERFIL = {
     "Persuadible":  "Responde à campanha",
     "Sure Thing":   "Retorna sem contato",
-    "Sleeping Dog": "Contato contraproducente",
+    "Sleeping Dog": "Efeito negativo estimado",
     "Lost Cause":   "Fora do alcance",
 }
 
@@ -136,8 +136,8 @@ if pagina == "Visão Geral":
               help="Estimativa de receita perdida caso esses clientes churnem")
     c3.metric("Custo da campanha (alvos)", f"R$ {custo_camp:,.0f}",
               help=f"{n_persuadivel} clientes que respondem à campanha × R$ {CUSTO_CONTATO}")
-    c4.metric("ROI validado em teste", "51,7%",
-              help="Resultado confirmado em teste A/B com 1.134 clientes")
+    c4.metric("ROI estimado (campanha simulada)", "51,7%",
+              help="Estimado no teste A/B sobre campanha simulada com 1.134 clientes")
 
     st.divider()
 
@@ -185,7 +185,7 @@ Dentro desse pool, um segundo modelo identifica **quem realmente responde** ao c
 |--------|------------|
 | Responde à campanha | ✅ Contatar (prioridade) |
 | Retorna sem contato | ⏸ Monitorar sem cupom |
-| Contato contraproducente | ⚠️ Evitar |
+| Efeito negativo estimado | 🔎 Validar antes de excluir |
 | Fora do alcance | ❌ Não contatar |
 """)
 
@@ -195,11 +195,11 @@ Dentro desse pool, um segundo modelo identifica **quem realmente responde** ao c
 elif pagina == "Resultado do Teste":
     st.title("Resultado do Teste")
     st.markdown(
-        "A campanha foi testada com **1.134 clientes** divididos em dois grupos iguais. "
+        "A campanha simulada foi aplicada a **1.134 clientes** divididos em dois grupos iguais. "
         "Apenas um grupo recebeu o cupom. O outro serviu de comparação."
     )
 
-    st.success("✅ **Campanha validada.** O cupom reduziu o churn de forma consistente e o resultado não é obra do acaso.")
+    st.info("**Campanha simulada.** O efeito do cupom foi definido na simulação; o teste confirma que o desenho do experimento detecta esse efeito (p = 0,008).")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Redução de churn", "7,6 p.p.", help="Diferença entre o grupo sem e com campanha")

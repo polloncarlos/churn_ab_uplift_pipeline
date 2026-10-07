@@ -1,6 +1,6 @@
 # Churn Prediction + A/B Testing + Uplift Modeling — End-to-End Retention Science
 
-> Pipeline de 3 camadas que identifica clientes em risco de churn, valida uma campanha de retenção com rigor estatístico e descobre para quais clientes a intervenção realmente muda o comportamento.
+> Pipeline de 3 camadas que identifica clientes em risco de churn, testa o desenho de um A/B sobre uma campanha de retenção simulada e estima, cliente a cliente, o efeito da intervenção.
 
 ---
 
@@ -22,7 +22,7 @@ A relação FN/FP é de **7×**, o que exige threshold conservador e um método 
 | Objetivo | Entregável |
 |----------|-----------|
 | Identificar clientes em risco nos próximos 90 dias | Score P(churn) por cliente + threshold operacional |
-| Validar se a campanha gera lift estatisticamente significativo | Teste A/B com χ², IC95% e impacto financeiro |
+| Validar o desenho do teste A/B (amostra, randomização, qui-quadrado) sobre a campanha simulada | Teste A/B com χ², IC95% e impacto financeiro |
 | Descobrir quem realmente muda de comportamento | Segmentação em 4 perfis via T-Learner (CATE individual) |
 | Pipeline operacional sem dependência de banco de dados | `score_campaign.py`, saída pronta para CRM em CSV |
 
@@ -40,7 +40,7 @@ A relação FN/FP é de **7×**, o que exige threshold conservador e um método 
 
 ---
 
-## 🧩 Metodologia — CRISP-DS
+## 🧩 Metodologia — CRISP-DM
 
 1. **Entendimento de negócio:** definição do churn (90 dias), custo de FN vs. FP, estrutura da campanha
 2. **Extração de dados:** `customer_segments.parquet` derivado do PA005 (RDS PostgreSQL)
@@ -168,9 +168,11 @@ CATE = P(churn|controle) − P(churn|tratamento). Positivo = campanha reduz chur
 | **Persuadible** | 433 | +0,092 | Alvo principal: campanha reduz churn em cliente de risco |
 | Sure Thing | 187 | +0,045 | Retornaria mesmo sem campanha |
 | Lost Cause | 134 | −0,050 | Não responde ao tratamento |
-| Sleeping Dog | 380 | −0,106 | Campanha pode aumentar churn. **Não contatar** |
+| Sleeping Dog | 380 | −0,106 | CATE estimado negativo (ruído, ver nota) |
 
 **AUUC gain:** +31,1 (pool inteiro) / **+3,68 (test-only, avaliação honesta)**. Com n=228 no test-only e `churn_real` como proxy histórico do outcome, qualquer valor positivo já indica que o modelo prioriza Persuadibles melhor que seleção aleatória em dados não vistos. Para amostras dessa ordem, ganhos acima de zero são o critério de sinal real, não magnitude absoluta.
+
+> **Nota sobre os Sleeping Dogs:** na simulação, o tratamento reduz o P(churn) de todos os clientes na mesma proporção, então nenhum cliente tem efeito real negativo. Os 380 Sleeping Dogs (e o CATE negativo dos Lost Causes) vêm do erro de estimativa do T-Learner, cujos modelos têm AUC de teste entre 0,56 e 0,63. Antes de virar regra de negócio, um segmento como esse precisaria ser confirmado com curva Qini em dados de teste e, no mundo real, com um novo experimento só nesse grupo.
 
 **Top-200 Persuadibles:** CATE médio 0,153 → custo R$ 3.000 → lucro R$ 6.646 → **ROI 221,5%** vs. 51,7% no pool amplo.
 
@@ -189,10 +191,10 @@ CATE = P(churn|controle) − P(churn|tratamento). Positivo = campanha reduz chur
 | Churn Model | ROI estimado (ciclo) | R$ 26.640 (base: 2.758 clientes) |
 | A/B Testing | p-value | 0,008 (significativo, α=5%) |
 | A/B Testing | Lift | ARR 7,6%, IC95% [2,1%, 13,1%] |
-| A/B Testing | ROI (pool amplo) | 51,7% |
+| A/B Testing | ROI estimado (pool amplo, simulado) | 51,7% |
 | Uplift | Persuadibles identificados | 433 (38,2% do pool) |
 | Uplift | AUUC gain (test-only) | +3,68 |
-| Uplift | ROI (top-200 Persuadibles) | 221,5% |
+| Uplift | ROI estimado (top-200, simulado) | 221,5% |
 
 ---
 
@@ -244,11 +246,11 @@ Na implementação inicial, a fórmula estava invertida. Corrigido para `u = con
 
 Dos 1.436 clientes churned na base bruta, 848 (59%) nunca voltaram após a primeira compra, são um problema de **ativação**, não retenção. Misturar esses clientes contamina o sinal preditivo e infla o pool com clientes que nunca teriam respondido ao cupom.
 
-**Sleeping Dogs: 380 clientes para não contatar**
+**Sleeping Dogs: um segmento que a simulação não tinha**
 
-33,5% do pool em risco tem CATE médio de −0,106: a campanha aumenta o risco de churn nesse segmento. Contatar essa faixa desperdiça R$ 5.700 em budget e pode acelerar o abandono. Identificá-los é tão valioso quanto encontrar os Persuadibles.
+O uplift classificou 380 clientes (33,5% do pool) com CATE médio de −0,106. Como a simulação aplica a mesma redução proporcional a todos, esse efeito negativo não existe nos dados: é ruído de estimativa. Segmentos de uplift precisam de validação própria antes de orientar a campanha.
 
-**ROI 4× maior ao focar vs. pulverizar**
+**ROI 4× maior ao focar vs. pulverizar (estimado no cenário simulado)**
 
 Campanha no pool amplo (1.134 clientes): ROI 51,7%. Campanha nos top-200 Persuadibles: ROI 221,5%. A mesma receita recuperada com ~¼ do investimento.
 
@@ -256,7 +258,7 @@ Campanha no pool amplo (1.134 clientes): ROI 51,7%. Campanha nos top-200 Persuad
 
 ---
 
-## 🚀 Pipeline de Scoring em Produção
+## 🚀 Pipeline de Scoring
 
 `scripts/score_campaign.py`: pipeline end-to-end sem dependência de RDS.
 
@@ -327,7 +329,7 @@ python scripts/score_campaign.py --top-k 300 --threshold 0.25
 
 ## 📌 Conclusão
 
-O projeto demonstra um pipeline completo de **Retention Science**: não apenas prever churn, mas validar causalidade (A/B) e estimar heterogeneidade de efeito (uplift). A progressão das 3 camadas é deliberada, cada uma responde uma pergunta que a anterior não consegue: o modelo de churn diz *quem vai sair*, o A/B diz *se a campanha funciona*, e o uplift diz *para quem ela funciona de verdade*.
+O projeto demonstra um pipeline completo de **Retention Science**: não apenas prever churn, mas desenhar o experimento que validaria a campanha (A/B) e estimar heterogeneidade de efeito (uplift). A progressão das 3 camadas é deliberada, cada uma responde uma pergunta que a anterior não consegue: o modelo de churn diz *quem vai sair*, o A/B diria *se a campanha funciona*, e o uplift estima *para quem ela funciona*.
 
 A decisão mais impactante foi o filtro de one-time buyers: sem ele, o modelo aprendia um sinal trivial e o pool seria contaminado com clientes irrecuperáveis. Com ele, o churn rate passa de 33,4% para 20,3%, um target genuíno de retenção.
 
