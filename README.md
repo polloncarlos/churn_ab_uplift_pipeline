@@ -252,7 +252,7 @@ O uplift classificou 380 clientes (33,5% do pool) com CATE médio de −0,106. C
 
 **ROI 4× maior ao focar vs. pulverizar (estimado no cenário simulado)**
 
-Campanha no pool amplo (1.134 clientes): ROI 51,7%. Campanha nos top-200 Persuadibles: ROI 221,5%. A mesma receita recuperada com ~¼ do investimento.
+Campanha no pool amplo (1.134 clientes): ROI 51,7%. Campanha nos top-200 Persuadibles: ROI 221,5%. Com cerca de um terço do investimento (R$ 3.000 contra R$ 8.505), a receita recuperada é menor (R$ 9.646 contra R$ 12.900), mas o retorno por real investido é bem maior.
 
 ![Distribuição de scores por quartil](reports/figures/ab_pool_distribution.png)
 
